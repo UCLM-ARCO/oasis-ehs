@@ -1,4 +1,4 @@
-Fecha y Hora,Mes,Día,Hora,G(h) - W/m2,Temperatura (°C)
+Date-hour,Month,Day,Hour,G(h) - W/m2,Temperature (°C)
 20210101-0000,01,01,00,0,5.47
 20210101-0100,01,01,01,0,4.94
 20210101-0200,01,01,02,0,4.4
