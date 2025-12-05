@@ -14,7 +14,7 @@ COL_TEMP = 'Temperature'
 #---
 
 # Columns: Month, Day, Hour, G(h), Temperature
-orig_Gh_data = pd.read_csv('raw-irradiance.csv', usecols=range(6))
+orig_Gh_data = pd.read_csv('raw-data/CR.csv', usecols=range(6))
 
 # Rename columns to standard constants
 # CSV header has: Date-hour, Month, Day, Hour, G(h), Temperature
