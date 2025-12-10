@@ -13,6 +13,7 @@ It includes functions for:
 - Evaluating configuration viability and computing scores
 """
 
+from logging import config
 import numpy as np
 import pandas as pd
 import itertools
@@ -25,6 +26,16 @@ except ModuleNotFoundError:
         if func is None:
             return lambda f: f
         return func
+
+
+class BatterySpec:
+    def __init__(self, capacity_mAh, I_max_A, description=""):
+        self.capacity_mAh = capacity_mAh  # Battery capacity in mAh
+        self.max_discharge_A = I_max_A  # Maximum continuous discharge current
+        self.description = description
+
+    def __repr__(self):
+        return f"BatterySpec(cap={self.capacity_mAh} mAh, Imax={self.max_discharge_A} A)"
 
 
 class Config:
@@ -77,6 +88,20 @@ class Config:
         2600,  # high-capacity 18650 (~10 Wh)
         4000,  # larger LiPo pack (~15 Wh)
         5400   # large IoT/multi-day autonomy pack (~20 Wh)
+    ]
+
+    BATTERY_SPECS = [
+        BatterySpec(30,   0.10, "small Li-ion coin cell (~0.1 Wh @ 3.7 V)"),
+        BatterySpec(70,   0.20, "supercap or very small LiPo (~0.25 Wh)"),
+        BatterySpec(135,  0.40, "compact LiPo (~0.5 Wh)"),
+        BatterySpec(270,  0.80, "small pouch cell (~1 Wh)"),
+        BatterySpec(500,  1.50, "standard Li-ion (~2 Wh)"),
+        BatterySpec(1000, 3.00, "one 18650 cell (~3.7 Wh)"),
+        BatterySpec(1300, 4.00, "small LiPo pack (~5 Wh)"),
+        BatterySpec(2000, 6.00, "two small Li-ion cells (~7.4 Wh)"),
+        BatterySpec(2600, 8.00, "high-capacity 18650 (~10 Wh)"),
+        BatterySpec(4000, 10.0, "larger LiPo pack (~15 Wh)"),
+        BatterySpec(5400, 12.0, "large IoT/multi-day autonomy pack (~20 Wh)")
     ]
 
 
@@ -262,7 +287,13 @@ class Simulator:
         """
         # Expand df_pv_pmu for all battery capacities
         df_soc = pd.concat(
-            [df_pv_pmu.assign(C_batt_mAh=Cbat) for Cbat in self.config.BATTERY_CAPACITIES_MAH],
+            [
+                df_pv_pmu.assign(
+                    C_batt_mAh=spec.capacity_mAh,
+                    I_batt_max_A=spec.max_discharge_A
+                )
+                for spec in config.BATTERY_SPECS
+            ],
             ignore_index=True
         )
 
@@ -309,8 +340,30 @@ class Simulator:
         return df_soc
 
     def simulate_battery_soc(self, df_pv_pmu):
+        """
+        Simulate battery State of Charge hour by hour for all configurations.
+
+        Parameters
+        ----------
+        df_pv_pmu : pd.DataFrame
+            Power balance data from compute_hourly_balance()
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with simulated SoC and failure flags for each configuration.
+            Columns added: C_batt_mAh, I_batt_max_A, SoC, failure_hour
+        """
+
+        # Expand dataframe for all battery specifications (capacity + I_max)
         df_soc = pd.concat(
-            [df_pv_pmu.assign(C_batt_mAh=Cbat) for Cbat in self.config.BATTERY_CAPACITIES_MAH],
+            [
+                df_pv_pmu.assign(
+                    C_batt_mAh=spec.capacity_mAh,
+                    I_batt_max_A=spec.max_discharge_A
+                )
+                for spec in self.config.BATTERY_SPECS
+            ],
             ignore_index=True
         )
 
@@ -323,21 +376,34 @@ class Simulator:
             ordered_idx = group.index.to_numpy()
 
             i_bat = group["I_BAT_mA"].to_numpy()
-            Cbat = key[1]
+            Cbat = float(key[1])
 
             soc = simulate_soc_kernel(
                 i_bat.astype(np.float64),
-                float(Cbat),
+                Cbat,
                 float(self.config.SOC_MIN),
                 float(self.config.BATTERY_ETA_C)
             )
 
             df_soc.loc[ordered_idx, "SoC"] = soc
 
-        df_soc["failure_hour"] = (
+        # (1) Failure due to SoC hitting minimum while still requiring power
+        fail_soc_min = (
             (df_soc["SoC"] <= self.config.SOC_MIN + 1e-9) &
             (df_soc["I_BAT_mA"] < 0)
-        ).astype(int)
+        )
+
+        # (2) Failure due to exceeding battery maximum discharge current
+        #     Required discharge current = -I_BAT_mA / 1000 (A)
+        fail_peak_current = (
+            ((-df_soc["I_BAT_mA"]) / 1000 > df_soc["I_batt_max_A"]) &
+            (df_soc["I_BAT_mA"] < 0)
+        )
+
+        df_soc["failure_hour_peak"] = fail_peak_current.astype(int)
+
+        # (3) Unified failure flag
+        df_soc["failure_hour"] = (fail_soc_min | fail_peak_current).astype(int)
 
         return df_soc
 
@@ -385,21 +451,46 @@ class Simulator:
         -------
         pd.DataFrame
             Summary DataFrame with metrics per configuration.
+            Additional columns:
+                - I_batt_max_A   : maximum allowed discharge current for that battery
+                - I_req_max_A    : maximum required discharge current (A)
         """
-        summary = (
-            df_soc
-            .groupby(["panel_area_m2", "C_batt_mAh", "eta_PMU"], as_index=False)
-            .agg(
-                hours_total=("SoC", "count"),
-                hours_soc_min=("SoC", lambda s: np.sum(s <= self.config.SOC_MIN + 1e-6)),
-                hours_soc_full=("SoC", lambda s: np.sum(s >= 1.0 - 1e-6)),
-                soc_mean=("SoC", "mean"),
-                soc_std=("SoC", "std"),
-                surplus_mAh=("I_BAT_mA", lambda s: np.sum(np.clip(s, 0, None))),
-                deficit_mAh=("I_BAT_mA", lambda s: -np.sum(np.clip(s, None, 0))),
-                autonomy_hours=("SoC", lambda s: self.longest_autonomy_hours(s.to_numpy(), self.config.SOC_MIN)),
-                failure_hours=("failure_hour", "sum")
-            )
+
+        def longest_autonomy_hours(s, soc_min):
+            arr = s.to_numpy()
+            below = arr <= soc_min + 1e-6
+            if below.all():
+                return 0
+            max_len = 0
+            current = 0
+            for v in below:
+                if not v:
+                    current += 1
+                    max_len = max(max_len, current)
+                else:
+                    current = 0
+            return max_len
+
+        grouped = df_soc.groupby(
+            ["panel_area_m2", "C_batt_mAh", "eta_PMU"],
+            as_index=False
+        )
+
+        summary = grouped.agg(
+            hours_total=("SoC", "count"),
+            hours_soc_min=("SoC", lambda s: np.sum(s <= self.config.SOC_MIN + 1e-6)),
+            hours_soc_full=("SoC", lambda s: np.sum(s >= 1.0 - 1e-6)),
+            soc_mean=("SoC", "mean"),
+            soc_std=("SoC", "std"),
+            surplus_mAh=("I_BAT_mA", lambda s: np.sum(np.clip(s, 0, None))),
+            deficit_mAh=("I_BAT_mA", lambda s: -np.sum(np.clip(s, None, 0))),
+            autonomy_hours=("SoC", lambda s: longest_autonomy_hours(s, self.config.SOC_MIN)),
+            failure_hours=("failure_hour", "sum"),
+            # --- New fields ---
+            # Max allowed discharge current (same for all rows in the configuration)
+            I_batt_max_A=("I_batt_max_A", "first"),
+            # Max required discharge current (A)
+            I_req_max_A=("I_BAT_mA", lambda s: np.max(np.abs(s.to_numpy()) / 1000.0)),
         )
 
         # Derived metrics
@@ -428,7 +519,7 @@ class Simulator:
         w_panel : float
             Weight for panel area (smaller is better)
         w_auto : float
-            Weight for autonomy (higher is better)
+            Weight for autonomy (smaller is better)
 
         Returns
         -------
@@ -447,15 +538,16 @@ class Simulator:
                          (summary["panel_area_m2"].max() - summary["panel_area_m2"].min())
             panel_score = 1.0 - panel_norm
 
-            # Normalize autonomy (higher = better)
+            # Normalize autonomy (smaller = better -> invert)
             auto_norm = (row["autonomy_hours"] - summary["autonomy_hours"].min()) / \
                         (summary["autonomy_hours"].max() - summary["autonomy_hours"].min())
+            auto_score = 1.0 - auto_norm
 
             # Weighted raw score
             raw = (
                 w_batt * batt_score +
                 w_panel * panel_score +
-                w_auto * auto_norm
+                w_auto * auto_score
             )
 
             return raw
