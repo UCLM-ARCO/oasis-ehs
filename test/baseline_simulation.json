@@ -1,0 +1,33 @@
+{
+  "soc_stats": {
+    "mean": 0.6096446388535879,
+    "std": 0.3689398237293604,
+    "min": 0.2,
+    "max": 1.0
+  },
+  "ibat_stats": {
+    "mean": 64.7450192498378,
+    "std": 198.38669099971122,
+    "min": -13.513513513513514,
+    "max": 1671.2564317837837
+  },
+  "summary_top1": {
+    "panel_area_m2": 0.004,
+    "C_batt_mAh": 1000.0,
+    "eta_PMU": 0.98,
+    "hours_total": 8760.0,
+    "hours_soc_min": 0.0,
+    "hours_soc_full": 2150.0,
+    "soc_mean": 0.8997968981994244,
+    "soc_std": 0.11404265782037866,
+    "surplus_mAh": 226770.9369645074,
+    "deficit_mAh": 64886.20038985406,
+    "autonomy_hours": 8760.0,
+    "failure_hours": 0.0,
+    "soc_min_fraction": 0.0,
+    "soc_full_fraction": 0.2454337899543379,
+    "net_mAh": 161884.73657465333,
+    "score": 0.9999999999994248
+  },
+  "summary_hash": "107de01ec6ace7ed9638158d344d0d85"
+}
