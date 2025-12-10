@@ -22,7 +22,7 @@ try:
     from numba import njit
 except ModuleNotFoundError:
     def njit(func=None, **kwargs):
-        # Numba unavailable → return function unchanged
+        # Numba unavailable -> return function unchanged
         if func is None:
             return lambda f: f
         return func
@@ -102,6 +102,7 @@ class Config:
     ]
 
     # Melisa
+    # https://docs.google.com/spreadsheets/d/16a1q3lofZJNS3nguHSokKgYhDOOP0ylY17oNx9dazzg/edit?gid=0#gid=0
     BATTERY_SPECS = [
         BatterySpec(0.105, 0.1575, "LiPo",
                     "105 mAh (401230) — SHENZHEN PKCELL — https://cdn-shop.adafruit.com/product-files/2750/LP552035_350MAH_3.7V_20150906.pdf"),
@@ -141,27 +142,20 @@ class Config:
     ]
 
 
-
 @njit
 def simulate_soc_kernel(i_bat, Cbat, soc_min, eta_c):
-    """
-    Numba-accelerated SoC integrator.
-
-    i_bat : array of current in A
-    Cbat  : battery capacity in Ah
-    """
     n = len(i_bat)
     soc = np.empty(n)
-    soc[0] = 1.0  # start full
+    soc[0] = 1.0
 
     for i in range(1, n):
         delta = i_bat[i]
-        if delta >= 0:
-            # Charging: apply charge efficiency
-            soc[i] = soc[i-1] + (delta / Cbat) * eta_c
+        if delta > 0.0:
+            soc[i] = soc[i-1] - (delta / Cbat) / eta_c
+        elif delta < 0.0:
+            soc[i] = soc[i-1] - (delta / Cbat) * eta_c
         else:
-            # Discharging: apply discharge efficiency
-            soc[i] = soc[i-1] + (delta / Cbat) / eta_c
+            soc[i] = soc[i-1]
 
         # Clamp SoC to [SOC_MIN, 1]
         if soc[i] > 1.0:
@@ -170,6 +164,43 @@ def simulate_soc_kernel(i_bat, Cbat, soc_min, eta_c):
             soc[i] = soc_min
 
     return soc
+
+
+
+def safe_normalized_autonomy(autonomy_value, min_auto, max_auto):
+    """
+    Return a stable, NaN-free normalized autonomy value in [0, 1].
+    - autonomy_value: row["autonomy_hours"]
+    - min_auto, max_auto: summary["autonomy_hours"].min(), .max()
+
+    Normalization:
+        (autonomy_value - min_auto) / (max_auto - min_auto)
+
+    Rules:
+    - If autonomy_value is NaN → worst case (1.0).
+    - If denominator is zero or invalid → return 0.0.
+    - Any NaN/inf result is sanitized.
+    """
+
+    # Worst case: missing autonomy => 1.0
+    if pd.isna(autonomy_value):
+        return 1.0
+
+    den = max_auto - min_auto
+
+    # Avoid divide-by-zero or undefined domain
+    if den <= 0 or pd.isna(den):
+        return 0.0
+
+    # Standard normalization
+    norm = (autonomy_value - min_auto) / den
+
+    # Stabilize numeric issues
+    if pd.isna(norm) or np.isinf(norm):
+        return 1.0
+
+    # Clip just in case due to FP rounding
+    return float(np.clip(norm, 0.0, 1.0))
 
 
 class Simulator:
@@ -294,7 +325,11 @@ class Simulator:
         -------
         pd.DataFrame
             DataFrame with PMU-adjusted power and battery current.
-            Additional columns: eta_PMU, P_PMU, P_BAT, I_BAT_mA
+            Additional columns: eta_PMU, I_PV_raw_A, I_PV_to_load_A, I_load_A, I_BAT_A
+
+            Convention:
+            - I_BAT_A > 0  => battery discharging
+            - I_BAT_A < 0  => battery charging
         """
         # Expand df_pv for all PMU efficiencies
         df_pv_pmu = pd.concat(
@@ -302,14 +337,32 @@ class Simulator:
             ignore_index=True
         )
 
-        # Compute PMU-adjusted power
-        df_pv_pmu["P_PMU"] = df_pv_pmu["P_PV"] * df_pv_pmu["eta_PMU"]
+        # PV current before PMU -> I_PV_raw_A = P_PV / Vbat
+        df_pv_pmu["I_PV_raw_A"] = df_pv_pmu["P_PV"] / self.config.BATTERY_VOLTAGE
 
-        # Net power (W)
-        df_pv_pmu["P_BAT"] = df_pv_pmu["P_PMU"] - self.config.NODE_POWER_W
+        # PV current available to the load (η_PMU applies)
+        df_pv_pmu["I_PV_to_load_A"] = df_pv_pmu["I_PV_raw_A"] * df_pv_pmu["eta_PMU"]
 
-        # Convert net power to net current (A)
-        df_pv_pmu["I_BAT_A"] = df_pv_pmu["P_BAT"] / self.config.BATTERY_VOLTAGE
+        # Load current (constant power node)
+        I_load_A = self.config.NODE_POWER_W / self.config.BATTERY_VOLTAGE
+        df_pv_pmu["I_load_A"] = I_load_A
+
+        # Net current needed from battery:
+        #   net > 0 => panel insufficient => battery DISCHARGES
+        #   net < 0 => panel exceeds load => surplus charges battery
+        net = df_pv_pmu["I_load_A"] - df_pv_pmu["I_PV_to_load_A"]
+
+        # Battery current with PMU efficiency:
+        #   Discharge:  I_BAT_A =  net / η_PMU     (> 0)
+        #   Charge:     I_BAT_A =  net * η_PMU     (< 0)
+        df_pv_pmu["I_BAT_A"] = np.where(
+            net >= 0.0,
+            net / df_pv_pmu["eta_PMU"],
+            net * df_pv_pmu["eta_PMU"]
+        )
+
+        return df_pv_pmu
+
 
         return df_pv_pmu
 
@@ -364,13 +417,14 @@ class Simulator:
         # Failure 1: SoC_min while still requiring power
         fail_soc_min = (
             (df_soc["SoC"] <= self.config.SOC_MIN + 1e-9) &
-            (df_soc["I_BAT_A"] < 0)
+            (df_soc["I_BAT_A"] > 0)
         )
 
         # Failure 2: discharge current exceeds battery max current
+        # Battery discharging -> I_BAT_A > 0
         fail_peak_current = (
-            ((-df_soc["I_BAT_A"]) > df_soc["I_batt_max_A"]) &
-            (df_soc["I_BAT_A"] < 0)
+            (df_soc["I_BAT_A"] > df_soc["I_batt_max_A"]) &
+            (df_soc["I_BAT_A"] > 0)
         )
 
         df_soc["failure_hour_peak"] = fail_peak_current.astype(int)
@@ -517,9 +571,13 @@ class Simulator:
             panel_score = 1.0 - panel_norm
 
             # Normalize autonomy (smaller = better -> invert)
-            auto_norm = (row["autonomy_hours"] - summary["autonomy_hours"].min()) / \
-                        (summary["autonomy_hours"].max() - summary["autonomy_hours"].min())
+            auto_norm = safe_normalized_autonomy(
+                row["autonomy_hours"],
+                summary["autonomy_hours"].min(),
+                summary["autonomy_hours"].max()
+            )
             auto_score = 1.0 - auto_norm
+
 
             # Weighted raw score
             raw = (
