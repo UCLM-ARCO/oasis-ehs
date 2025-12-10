@@ -30,10 +30,10 @@ def test_simulation_regression():
     assert abs(df_soc["SoC"].max()  - baseline["soc_stats"]["max"])  < 1e-12
 
     # --- 2) Test battery current statistics ---
-    assert abs(df_soc["I_BAT_mA"].mean() - baseline["ibat_stats"]["mean"]) < 1e-12
-    assert abs(df_soc["I_BAT_mA"].std()  - baseline["ibat_stats"]["std"])  < 1e-12
-    assert abs(df_soc["I_BAT_mA"].min()  - baseline["ibat_stats"]["min"])  < 1e-12
-    assert abs(df_soc["I_BAT_mA"].max()  - baseline["ibat_stats"]["max"])  < 1e-12
+    assert abs(df_soc["I_BAT_A"].mean() - baseline["ibat_stats"]["mean"]) < 1e-12
+    assert abs(df_soc["I_BAT_A"].std()  - baseline["ibat_stats"]["std"])  < 1e-12
+    assert abs(df_soc["I_BAT_A"].min()  - baseline["ibat_stats"]["min"])  < 1e-12
+    assert abs(df_soc["I_BAT_A"].max()  - baseline["ibat_stats"]["max"])  < 1e-12
 
     # --- 3) Test top-1 result identical ---
     top1 = summary.iloc[0].to_dict()
@@ -43,7 +43,7 @@ def test_simulation_regression():
     # --- 4) Test summary hash identical ---
     current_hash = df_hash(summary[[
         "panel_area_m2",
-        "C_batt_mAh",
+        "C_batt_Ah",
         "eta_PMU",
         "autonomy_hours",
         "failure_hours",

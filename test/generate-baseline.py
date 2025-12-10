@@ -26,16 +26,16 @@ def main():
             "max": float(df_soc["SoC"].max()),
         },
         "ibat_stats": {
-            "mean": float(df_soc["I_BAT_mA"].mean()),
-            "std": float(df_soc["I_BAT_mA"].std()),
-            "min": float(df_soc["I_BAT_mA"].min()),
-            "max": float(df_soc["I_BAT_mA"].max()),
+            "mean": float(df_soc["I_BAT_A"].mean()),
+            "std": float(df_soc["I_BAT_A"].std()),
+            "min": float(df_soc["I_BAT_A"].min()),
+            "max": float(df_soc["I_BAT_A"].max()),
         },
         "summary_top1": summary.iloc[0].to_dict(),
         "summary_hash": df_hash(
             summary[[
                 "panel_area_m2",
-                "C_batt_mAh",
+                "C_batt_Ah",
                 "eta_PMU",
                 "autonomy_hours",
                 "failure_hours",
