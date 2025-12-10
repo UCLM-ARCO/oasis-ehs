@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
 Synthetic Dataset Generator for Solar-Powered IoT Nodes
 
@@ -14,6 +16,15 @@ It includes functions for:
 import numpy as np
 import pandas as pd
 import itertools
+
+try:
+    from numba import njit
+except ModuleNotFoundError:
+    def njit(func=None, **kwargs):
+        # Numba unavailable → return function unchanged
+        if func is None:
+            return lambda f: f
+        return func
 
 
 class SolarIoTConfig:
@@ -229,7 +240,7 @@ def compute_hourly_balance(df_pv, config=None):
     return df_pv_pmu
 
 
-def simulate_battery_soc(df_pv_pmu, config=None):
+def simulate_battery_soc__not_optimized(df_pv_pmu, config=None):
     """
     Simulate battery State of Charge hour by hour for all configurations.
 
@@ -259,19 +270,21 @@ def simulate_battery_soc(df_pv_pmu, config=None):
 
     # Simulate SoC for each configuration
     # One configuration = (panel_area_m2, C_batt_mAh, eta_PMU)
-    for (A, Cbat, eta), group_idx in df_soc.groupby(
-        ["panel_area_m2", "C_batt_mAh", "eta_PMU"]
-    ).groups.items():
+    grouped = df_soc.groupby(["panel_area_m2", "C_batt_mAh", "eta_PMU"])
 
-        idx = list(group_idx)
-        i_bat = df_soc.loc[idx, "I_BAT_mA"].to_numpy()
+    for key, idx in grouped.groups.items():
+        # Extract group and ensure correct hour ordering
+        group = df_soc.loc[idx].sort_values("hour_index")
+        ordered_idx = group.index.to_numpy()
+
+        i_bat = group["I_BAT_mA"].to_numpy()
+        Cbat = key[1]  # (A, C_batt, eta) → take C_batt
 
         soc = np.empty_like(i_bat)
-        soc[0] = 1.0  # start fully charged
+        soc[0] = 1.0  # Start fully charged
 
         for i in range(1, len(i_bat)):
             delta = i_bat[i]
-
             if delta >= 0:
                 # Charging: apply charge efficiency
                 soc[i] = soc[i-1] + (delta / Cbat) * config.BATTERY_ETA_C
@@ -279,21 +292,78 @@ def simulate_battery_soc(df_pv_pmu, config=None):
                 # Discharging: apply discharge efficiency
                 soc[i] = soc[i-1] + (delta / Cbat) / config.BATTERY_ETA_C
 
-            # Clamp SoC to allowed range
             soc[i] = min(1.0, max(config.SOC_MIN, soc[i]))
 
-        df_soc.loc[idx, "SoC"] = soc
+        # Assign simulated SoC back to the correct rows
+        df_soc.loc[ordered_idx, "SoC"] = soc
 
     # Compute failure hours at the df_soc level
     # A "failure hour" is when:
-    #   (1) SoC == SOC_MIN  → battery cannot discharge further
-    #   (2) I_BAT_mA < 0     → the node still requires power
+    #   (1) SoC == SOC_MIN  -> battery cannot discharge further
+    #   (2) I_BAT_mA < 0    -> the node still requires power
     df_soc["failure_hour"] = (
         (df_soc["SoC"] <= config.SOC_MIN + 1e-9) &
         (df_soc["I_BAT_mA"] < 0)
     ).astype(int)
 
     return df_soc
+
+
+@njit
+def simulate_soc_kernel(i_bat, Cbat, soc_min, eta_c):
+    n = len(i_bat)
+    soc = np.empty(n)
+    soc[0] = 1.0
+    for i in range(1, n):
+        delta = i_bat[i]
+        if delta >= 0:
+            soc[i] = soc[i-1] + (delta / Cbat) * eta_c
+        else:
+            soc[i] = soc[i-1] + (delta / Cbat) / eta_c
+        # clamp
+        if soc[i] > 1.0:
+            soc[i] = 1.0
+        elif soc[i] < soc_min:
+            soc[i] = soc_min
+    return soc
+
+
+def simulate_battery_soc(df_pv_pmu, config=None):
+    if config is None:
+        config = SolarIoTConfig()
+
+    df_soc = pd.concat(
+        [df_pv_pmu.assign(C_batt_mAh=Cbat) for Cbat in config.BATTERY_CAPACITIES_MAH],
+        ignore_index=True
+    )
+
+    df_soc["SoC"] = np.nan
+
+    grouped = df_soc.groupby(["panel_area_m2", "C_batt_mAh", "eta_PMU"])
+
+    for key, idx in grouped.groups.items():
+        group = df_soc.loc[idx].sort_values("hour_index")
+        ordered_idx = group.index.to_numpy()
+
+        i_bat = group["I_BAT_mA"].to_numpy()
+        Cbat = key[1]
+
+        soc = simulate_soc_kernel(
+            i_bat.astype(np.float64),
+            float(Cbat),
+            float(config.SOC_MIN),
+            float(config.BATTERY_ETA_C)
+        )
+
+        df_soc.loc[ordered_idx, "SoC"] = soc
+
+    df_soc["failure_hour"] = (
+        (df_soc["SoC"] <= config.SOC_MIN + 1e-9) &
+        (df_soc["I_BAT_mA"] < 0)
+    ).astype(int)
+
+    return df_soc
+
 
 
 def longest_autonomy_hours(soc_series, soc_min):
@@ -399,12 +469,12 @@ def compute_optimal_score(summary, w_batt=1.0, w_panel=1.0, w_auto=1.0):
     """
     def compute_raw_score(row):
         """Compute unnormalized raw score."""
-        # Normalize battery capacity (smaller = better → invert)
+        # Normalize battery capacity (smaller = better -> invert)
         batt_norm = (row["C_batt_mAh"] - summary["C_batt_mAh"].min()) / \
                     (summary["C_batt_mAh"].max() - summary["C_batt_mAh"].min())
         batt_score = 1.0 - batt_norm
 
-        # Normalize panel area (smaller = better → invert)
+        # Normalize panel area (smaller = better -> invert)
         panel_norm = (row["panel_area_m2"] - summary["panel_area_m2"].min()) / \
                      (summary["panel_area_m2"].max() - summary["panel_area_m2"].min())
         panel_score = 1.0 - panel_norm
