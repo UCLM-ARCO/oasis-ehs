@@ -24,10 +24,12 @@
     "deficit_mAh": 64886.20038985406,
     "autonomy_hours": 8760.0,
     "failure_hours": 0.0,
+    "I_batt_max_A": 3.0,
+    "I_req_max_A": 0.15496348101621615,
     "soc_min_fraction": 0.0,
     "soc_full_fraction": 0.2454337899543379,
     "net_mAh": 161884.73657465333,
-    "score": 0.9999999999994248
+    "score": 0.5738741639945255
   },
-  "summary_hash": "107de01ec6ace7ed9638158d344d0d85"
+  "summary_hash": "72226b1d87982ef7a666ac5fcaa68b17"
 }
