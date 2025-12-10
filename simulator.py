@@ -13,7 +13,7 @@ It includes functions for:
 - Evaluating configuration viability and computing scores
 """
 
-from logging import config
+
 import numpy as np
 import pandas as pd
 import itertools
@@ -29,13 +29,14 @@ except ModuleNotFoundError:
 
 
 class BatterySpec:
-    def __init__(self, capacity_mAh, I_max_A, description=""):
-        self.capacity_mAh = capacity_mAh  # Battery capacity in mAh
-        self.max_discharge_A = I_max_A  # Maximum continuous discharge current
+    def __init__(self, capacity_Ah, I_max_A, kind='', description=""):
+        self.capacity_Ah = capacity_Ah  # Battery capacity in Ah
+        self.max_discharge_A = I_max_A  # Maximum continuous discharge current (A)
+        self.kind = kind
         self.description = description
 
     def __repr__(self):
-        return f"BatterySpec(cap={self.capacity_mAh} mAh, Imax={self.max_discharge_A} A)"
+        return f"BatterySpec(cap={self.capacity_Ah} Ah, Imax={self.max_discharge_A} A)"
 
 
 class Config:
@@ -50,8 +51,8 @@ class Config:
     NOCT_C = 45.0          # Nominal Operating Cell Temperature (°C)
 
     # Battery constants
-    BATTERY_ETA_C = 0.95  # Charge/discharge efficiency
-    SOC_MIN = 0.2         # Minimum allowed SoC (fraction)
+    BATTERY_ETA_C = 0.95   # Charge/discharge efficiency
+    SOC_MIN = 0.2          # Minimum allowed SoC (fraction)
     BATTERY_VOLTAGE = 3.7  # Nominal voltage (V)
 
     # Variable parameter ranges
@@ -75,54 +76,99 @@ class Config:
         0.0400    # 400 cm² (≈20×20 cm)
     ]
 
-    # Battery capacities (realistic IoT battery sizes)
-    BATTERY_CAPACITIES_MAH = [
-        30,    # small Li-ion coin cell (~0.1 Wh @ 3.7 V)
-        70,    # supercap or very small LiPo (~0.25 Wh @ 3.7 V)
-        135,   # compact LiPo (~0.5 Wh @ 3.7 V)
-        270,   # small pouch cell (~1.0 Wh @ 3.7 V)
-        500,   # standard Li-ion (~2.0 Wh @ 3.7 V)
-        1000,  # one 18650 cell (~3.7 Wh)
-        1300,  # small LiPo pack (~5.0 Wh @ 3.7 V)
-        2000,  # two small Li-ion cells (~7.4 Wh @ 3.7 V)
-        2600,  # high-capacity 18650 (~10 Wh)
-        4000,  # larger LiPo pack (~15 Wh)
-        5400   # large IoT/multi-day autonomy pack (~20 Wh)
+    BATTERY_SPECS = [
+        BatterySpec(0.030, 0.10, "Li-ion",
+                    "small Li-ion coin cell (~0.1 Wh)"),
+        BatterySpec(0.070, 0.20, "LiPo",
+                    "supercap / very small LiPo (~0.25 Wh)"),
+        BatterySpec(0.135, 0.40, "LiPo",
+                    "compact LiPo (~0.5 Wh)"),
+        BatterySpec(0.270, 0.80, "LiPo",
+                    "small pouch (~1 Wh)"),
+        BatterySpec(0.500, 1.50, "Li-ion",
+                    "standard Li-ion (~2 Wh)"),
+        BatterySpec(1.000, 3.00, "Li-ion",
+                    "single 18650 (~3.7 Wh)"),
+        BatterySpec(1.300, 4.00, "LiPo",
+                    "small LiPo pack (~5 Wh)"),
+        BatterySpec(2.000, 6.00, "Li-ion",
+                    "two Li-ion (~7.4 Wh)"),
+        BatterySpec(2.600, 8.00, "Li-ion",
+                    "high capacity 18650 (~10 Wh)"),
+        BatterySpec(4.000, 10.0, "LiPo",
+                    "large LiPo (~15 Wh)"),
+        BatterySpec(5.400, 12.0, "Li-ion",
+                    "multi-day pack (~20 Wh)")
     ]
 
+    # Melisa
     BATTERY_SPECS = [
-        BatterySpec(30,   0.10, "small Li-ion coin cell (~0.1 Wh @ 3.7 V)"),
-        BatterySpec(70,   0.20, "supercap or very small LiPo (~0.25 Wh)"),
-        BatterySpec(135,  0.40, "compact LiPo (~0.5 Wh)"),
-        BatterySpec(270,  0.80, "small pouch cell (~1 Wh)"),
-        BatterySpec(500,  1.50, "standard Li-ion (~2 Wh)"),
-        BatterySpec(1000, 3.00, "one 18650 cell (~3.7 Wh)"),
-        BatterySpec(1300, 4.00, "small LiPo pack (~5 Wh)"),
-        BatterySpec(2000, 6.00, "two small Li-ion cells (~7.4 Wh)"),
-        BatterySpec(2600, 8.00, "high-capacity 18650 (~10 Wh)"),
-        BatterySpec(4000, 10.0, "larger LiPo pack (~15 Wh)"),
-        BatterySpec(5400, 12.0, "large IoT/multi-day autonomy pack (~20 Wh)")
+        BatterySpec(0.105, 0.1575, "LiPo",
+                    "105 mAh (401230) — SHENZHEN PKCELL — https://cdn-shop.adafruit.com/product-files/2750/LP552035_350MAH_3.7V_20150906.pdf"),
+
+        BatterySpec(0.350, 0.5250, "LiPo",
+                    "350 mAh — https://cdn-shop.adafruit.com/product-files/2750/LP552035_350MAH_3.7V_20150906.pdf"),
+
+        BatterySpec(0.420, 0.6300, "LiPo",
+                    "420 mAh — https://cdn-shop.adafruit.com/product-files/4236/4236_ds_LP552535+420mAh+3.7V.pdf"),
+
+        BatterySpec(0.500, 0.5000, "LiPo",
+                    "500 mAh — https://cdn-shop.adafruit.com/product-files/1578/Datasheet.pdf"),
+
+        BatterySpec(0.400, 0.6000, "LiPo",
+                    "400 mAh — https://cdn-shop.adafruit.com/product-files/3898/3898_specsheet_LP801735_400mAh_3.7V_20161129.pdf"),
+
+        BatterySpec(1.200, 1.2000, "LiPo",
+                    "1200 mAh — https://cdn-shop.adafruit.com/product-files/258/C101-_Li-Polymer_503562_1200mAh_3.7V_with_PCM_APPROVED_8.18.pdf"),
+
+        BatterySpec(2.000, 2.0000, "LiPo",
+                    "2000 mAh — https://cdn-shop.adafruit.com/datasheets/LiIon2000mAh37V.pdf"),
+
+        BatterySpec(2.500, 1.5000, "LiPo",
+                    "2500 mAh — https://cdn-shop.adafruit.com/product-files/328/LP785060+2500mAh+3.7V+20190510.pdf"),
+
+        BatterySpec(0.120, 0.2400, "Li-ion",
+                    "120 mAh coin cell (LIR2450) — https://cdn-shop.adafruit.com/datasheets/LIR2450.pdf"),
+
+        BatterySpec(1.600, 4.8000, "LiFePO4",
+                    "1600 mAh (high-discharge) — https://www.antbatt.com/wp-content/uploads/2019/09/18650-3.2V-1600mAh-datasheet.pdf"),
+
+        BatterySpec(3.200, 9.6000, "LiFePO4",
+                    "3200 mAh (high-discharge) — https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/180/P3_2D00_Datasheet-Cell--3232-LFP-26650.pdf"),
+
+        BatterySpec(2.300, 46.0000, "LiFePO4",
+                    "2300 mAh (very high-discharge) — https://docs.rs-online.com/4ad1/0900766b812fdd10.pdf")
     ]
+
 
 
 @njit
 def simulate_soc_kernel(i_bat, Cbat, soc_min, eta_c):
+    """
+    Numba-accelerated SoC integrator.
+
+    i_bat : array of current in A
+    Cbat  : battery capacity in Ah
+    """
     n = len(i_bat)
     soc = np.empty(n)
-    soc[0] = 1.0
+    soc[0] = 1.0  # start full
 
     for i in range(1, n):
         delta = i_bat[i]
         if delta >= 0:
+            # Charging: apply charge efficiency
             soc[i] = soc[i-1] + (delta / Cbat) * eta_c
         else:
+            # Discharging: apply discharge efficiency
             soc[i] = soc[i-1] + (delta / Cbat) / eta_c
 
-        # clamp
+        # Clamp SoC to [SOC_MIN, 1]
         if soc[i] > 1.0:
             soc[i] = 1.0
         elif soc[i] < soc_min:
             soc[i] = soc_min
+
     return soc
 
 
@@ -143,13 +189,13 @@ class Simulator:
         """
         design_space = list(itertools.product(
             self.config.PANEL_AREAS_M2,
-            self.config.BATTERY_CAPACITIES_MAH,
+            [spec.capacity_Ah for spec in self.config.BATTERY_SPECS],
             self.config.PMU_ETA_VALUES
         ))
 
         df_design = pd.DataFrame(design_space, columns=[
             "panel_area_m2",
-            "battery_capacity_mAh",
+            "battery_capacity_Ah",
             "eta_PMU"
         ])
 
@@ -184,10 +230,7 @@ class Simulator:
             "Temperature": "T_amb"
         })
 
-        # Keep only relevant numeric columns
-        irr_data = irr_data[["Month", "Day", "Hour", "G_h", "T_amb"]].reset_index(drop=True)
-
-        return irr_data
+        return irr_data[["Month", "Day", "Hour", "G_h", "T_amb"]].reset_index(drop=True)
 
     def compute_pv_power(self, irr_data):
         """
@@ -265,79 +308,10 @@ class Simulator:
         # Net power (W)
         df_pv_pmu["P_BAT"] = df_pv_pmu["P_PMU"] - self.config.NODE_POWER_W
 
-        # Convert net power to net current (mA)
-        df_pv_pmu["I_BAT_mA"] = (df_pv_pmu["P_BAT"] / self.config.BATTERY_VOLTAGE) * 1000
+        # Convert net power to net current (A)
+        df_pv_pmu["I_BAT_A"] = df_pv_pmu["P_BAT"] / self.config.BATTERY_VOLTAGE
 
         return df_pv_pmu
-
-    def simulate_battery_soc__not_optimized(self, df_pv_pmu):
-        """
-        Simulate battery State of Charge hour by hour for all configurations.
-
-        Parameters
-        ----------
-        df_pv_pmu : pd.DataFrame
-            Power balance data from compute_hourly_balance()
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with simulated SoC for each configuration.
-            Additional columns: C_batt_mAh, SoC, failure_hour
-        """
-        # Expand df_pv_pmu for all battery capacities
-        df_soc = pd.concat(
-            [
-                df_pv_pmu.assign(
-                    C_batt_mAh=spec.capacity_mAh,
-                    I_batt_max_A=spec.max_discharge_A
-                )
-                for spec in config.BATTERY_SPECS
-            ],
-            ignore_index=True
-        )
-
-        df_soc["SoC"] = np.nan
-
-        # Simulate SoC for each configuration
-        # One configuration = (panel_area_m2, C_batt_mAh, eta_PMU)
-        grouped = df_soc.groupby(["panel_area_m2", "C_batt_mAh", "eta_PMU"])
-
-        for key, idx in grouped.groups.items():
-            # Extract group and ensure correct hour ordering
-            group = df_soc.loc[idx].sort_values("hour_index")
-            ordered_idx = group.index.to_numpy()
-
-            i_bat = group["I_BAT_mA"].to_numpy()
-            Cbat = key[1]  # (A, C_batt, eta) → take C_batt
-
-            soc = np.empty_like(i_bat)
-            soc[0] = 1.0  # Start fully charged
-
-            for i in range(1, len(i_bat)):
-                delta = i_bat[i]
-                if delta >= 0:
-                    # Charging: apply charge efficiency
-                    soc[i] = soc[i-1] + (delta / Cbat) * self.config.BATTERY_ETA_C
-                else:
-                    # Discharging: apply discharge efficiency
-                    soc[i] = soc[i-1] + (delta / Cbat) / self.config.BATTERY_ETA_C
-
-                soc[i] = min(1.0, max(self.config.SOC_MIN, soc[i]))
-
-            # Assign simulated SoC back to the correct rows
-            df_soc.loc[ordered_idx, "SoC"] = soc
-
-        # Compute failure hours at the df_soc level
-        # A "failure hour" is when:
-        #   (1) SoC == SOC_MIN  -> battery cannot discharge further
-        #   (2) I_BAT_mA < 0    -> the node still requires power
-        df_soc["failure_hour"] = (
-            (df_soc["SoC"] <= self.config.SOC_MIN + 1e-9) &
-            (df_soc["I_BAT_mA"] < 0)
-        ).astype(int)
-
-        return df_soc
 
     def simulate_battery_soc(self, df_pv_pmu):
         """
@@ -352,14 +326,14 @@ class Simulator:
         -------
         pd.DataFrame
             DataFrame with simulated SoC and failure flags for each configuration.
-            Columns added: C_batt_mAh, I_batt_max_A, SoC, failure_hour
+            Columns added: C_batt_Ah, I_batt_max_A, SoC, failure_hour
         """
 
         # Expand dataframe for all battery specifications (capacity + I_max)
         df_soc = pd.concat(
             [
                 df_pv_pmu.assign(
-                    C_batt_mAh=spec.capacity_mAh,
+                    C_batt_Ah=spec.capacity_Ah,
                     I_batt_max_A=spec.max_discharge_A
                 )
                 for spec in self.config.BATTERY_SPECS
@@ -369,13 +343,13 @@ class Simulator:
 
         df_soc["SoC"] = np.nan
 
-        grouped = df_soc.groupby(["panel_area_m2", "C_batt_mAh", "eta_PMU"])
+        grouped = df_soc.groupby(["panel_area_m2", "C_batt_Ah", "eta_PMU"])
 
         for key, idx in grouped.groups.items():
             group = df_soc.loc[idx].sort_values("hour_index")
             ordered_idx = group.index.to_numpy()
 
-            i_bat = group["I_BAT_mA"].to_numpy()
+            i_bat = group["I_BAT_A"].to_numpy()
             Cbat = float(key[1])
 
             soc = simulate_soc_kernel(
@@ -387,17 +361,16 @@ class Simulator:
 
             df_soc.loc[ordered_idx, "SoC"] = soc
 
-        # (1) Failure due to SoC hitting minimum while still requiring power
+        # Failure 1: SoC_min while still requiring power
         fail_soc_min = (
             (df_soc["SoC"] <= self.config.SOC_MIN + 1e-9) &
-            (df_soc["I_BAT_mA"] < 0)
+            (df_soc["I_BAT_A"] < 0)
         )
 
-        # (2) Failure due to exceeding battery maximum discharge current
-        #     Required discharge current = -I_BAT_mA / 1000 (A)
+        # Failure 2: discharge current exceeds battery max current
         fail_peak_current = (
-            ((-df_soc["I_BAT_mA"]) / 1000 > df_soc["I_batt_max_A"]) &
-            (df_soc["I_BAT_mA"] < 0)
+            ((-df_soc["I_BAT_A"]) > df_soc["I_batt_max_A"]) &
+            (df_soc["I_BAT_A"] < 0)
         )
 
         df_soc["failure_hour_peak"] = fail_peak_current.astype(int)
@@ -472,31 +445,36 @@ class Simulator:
             return max_len
 
         grouped = df_soc.groupby(
-            ["panel_area_m2", "C_batt_mAh", "eta_PMU"],
+            ["panel_area_m2", "C_batt_Ah", "eta_PMU"],
             as_index=False
         )
 
         summary = grouped.agg(
             hours_total=("SoC", "count"),
+
             hours_soc_min=("SoC", lambda s: np.sum(s <= self.config.SOC_MIN + 1e-6)),
             hours_soc_full=("SoC", lambda s: np.sum(s >= 1.0 - 1e-6)),
+
             soc_mean=("SoC", "mean"),
             soc_std=("SoC", "std"),
-            surplus_mAh=("I_BAT_mA", lambda s: np.sum(np.clip(s, 0, None))),
-            deficit_mAh=("I_BAT_mA", lambda s: -np.sum(np.clip(s, None, 0))),
-            autonomy_hours=("SoC", lambda s: longest_autonomy_hours(s, self.config.SOC_MIN)),
+
+            surplus_Ah=("I_BAT_A", lambda s: np.sum(np.clip(s, 0, None))),
+            deficit_Ah=("I_BAT_A", lambda s: -np.sum(np.clip(s, None, 0))),
+
+
+            autonomy_hours=("SoC", lambda s: self.longest_autonomy_hours(s, self.config.SOC_MIN)),
             failure_hours=("failure_hour", "sum"),
-            # --- New fields ---
-            # Max allowed discharge current (same for all rows in the configuration)
+
             I_batt_max_A=("I_batt_max_A", "first"),
-            # Max required discharge current (A)
-            I_req_max_A=("I_BAT_mA", lambda s: np.max(np.abs(s.to_numpy()) / 1000.0)),
+
+
+            I_req_max_A=("I_BAT_A", lambda s: np.max(np.abs(s.to_numpy()))),
         )
 
         # Derived metrics
         summary["soc_min_fraction"] = summary["hours_soc_min"] / summary["hours_total"]
         summary["soc_full_fraction"] = summary["hours_soc_full"] / summary["hours_total"]
-        summary["net_mAh"] = summary["surplus_mAh"] - summary["deficit_mAh"]
+        summary["net_Ah"] = summary["surplus_Ah"] - summary["deficit_Ah"]
 
         return summary
 
@@ -529,8 +507,8 @@ class Simulator:
         def compute_raw_score(row):
             """Compute unnormalized raw score."""
             # Normalize battery capacity (smaller = better -> invert)
-            batt_norm = (row["C_batt_mAh"] - summary["C_batt_mAh"].min()) / \
-                        (summary["C_batt_mAh"].max() - summary["C_batt_mAh"].min())
+            batt_norm = (row["C_batt_Ah"] - summary["C_batt_Ah"].min()) / \
+                        (summary["C_batt_Ah"].max() - summary["C_batt_Ah"].min())
             batt_score = 1.0 - batt_norm
 
             # Normalize panel area (smaller = better -> invert)
