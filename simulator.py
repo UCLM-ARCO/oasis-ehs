@@ -205,9 +205,7 @@ def safe_normalized_autonomy(autonomy_value, min_auto, max_auto):
 
 class Simulator:
     def __init__(self, config=None):
-        if config is None:
-            config = Config()
-        self.config = config
+        self.config = config or Config()
 
     def build_design_space(self):
         """
@@ -224,13 +222,9 @@ class Simulator:
             self.config.PMU_ETA_VALUES
         ))
 
-        df_design = pd.DataFrame(design_space, columns=[
-            "panel_area_m2",
-            "battery_capacity_Ah",
-            "eta_PMU"
+        return pd.DataFrame(design_space, columns=[
+            "panel_area_m2", "battery_capacity_Ah", "eta_PMU"
         ])
-
-        return df_design
 
     def load_irradiance_data(self, filepath="raw-data/CR.csv"):
         """
@@ -332,41 +326,38 @@ class Simulator:
             - I_BAT_A < 0  => battery charging
         """
         # Expand df_pv for all PMU efficiencies
-        df_pv_pmu = pd.concat(
+        df = pd.concat(
             [df_pv.assign(eta_PMU=eta) for eta in self.config.PMU_ETA_VALUES],
             ignore_index=True
         )
 
         # PV current before PMU -> I_PV_raw_A = P_PV / Vbat
-        df_pv_pmu["I_PV_raw_A"] = df_pv_pmu["P_PV"] / self.config.BATTERY_VOLTAGE
+        df["I_PV_raw_A"] = df["P_PV"] / self.config.BATTERY_VOLTAGE
 
         # PV current available to the load (η_PMU applies)
-        df_pv_pmu["I_PV_to_load_A"] = df_pv_pmu["I_PV_raw_A"] * df_pv_pmu["eta_PMU"]
+        df["I_PV_to_load_A"] = df["I_PV_raw_A"] * df["eta_PMU"]
 
         # Load current (constant power node)
         I_load_A = self.config.NODE_POWER_W / self.config.BATTERY_VOLTAGE
-        df_pv_pmu["I_load_A"] = I_load_A
+        df["I_load_A"] = I_load_A
 
         # Net current needed from battery:
         #   net > 0 => panel insufficient => battery DISCHARGES
         #   net < 0 => panel exceeds load => surplus charges battery
-        net = df_pv_pmu["I_load_A"] - df_pv_pmu["I_PV_to_load_A"]
+        net = df["I_load_A"] - df["I_PV_to_load_A"]
 
         # Battery current with PMU efficiency:
         #   Discharge:  I_BAT_A =  net / η_PMU     (> 0)
         #   Charge:     I_BAT_A =  net * η_PMU     (< 0)
-        df_pv_pmu["I_BAT_A"] = np.where(
+        df["I_BAT_A"] = np.where(
             net >= 0.0,
-            net / df_pv_pmu["eta_PMU"],
-            net * df_pv_pmu["eta_PMU"]
+            net / df["eta_PMU"],
+            net * df["eta_PMU"]
         )
 
-        return df_pv_pmu
+        return df
 
-
-        return df_pv_pmu
-
-    def simulate_battery_soc(self, df_pv_pmu):
+    def simulate_battery_soc(self, df):
         """
         Simulate battery State of Charge hour by hour for all configurations.
 
@@ -385,10 +376,8 @@ class Simulator:
         # Expand dataframe for all battery specifications (capacity + I_max)
         df_soc = pd.concat(
             [
-                df_pv_pmu.assign(
-                    C_batt_Ah=spec.capacity_Ah,
-                    I_batt_max_A=spec.max_discharge_A
-                )
+                df.assign(C_batt_Ah=spec.capacity_Ah,
+                          I_batt_max_A=spec.max_discharge_A)
                 for spec in self.config.BATTERY_SPECS
             ],
             ignore_index=True
@@ -398,21 +387,15 @@ class Simulator:
 
         grouped = df_soc.groupby(["panel_area_m2", "C_batt_Ah", "eta_PMU"])
 
-        for key, idx in grouped.groups.items():
-            group = df_soc.loc[idx].sort_values("hour_index")
-            ordered_idx = group.index.to_numpy()
-
-            i_bat = group["I_BAT_A"].to_numpy()
-            Cbat = float(key[1])
-
+        for (_, Cbat, _), idx in grouped.groups.items():
+            g = df_soc.loc[idx].sort_values("hour_index")
             soc = simulate_soc_kernel(
-                i_bat.astype(np.float64),
-                Cbat,
-                float(self.config.SOC_MIN),
-                float(self.config.BATTERY_ETA_C)
+                g["I_BAT_A"].to_numpy().astype(np.float64),
+                float(Cbat),
+                self.config.SOC_MIN,
+                self.config.BATTERY_ETA_C
             )
-
-            df_soc.loc[ordered_idx, "SoC"] = soc
+            df_soc.loc[g.index, "SoC"] = soc
 
         # Failure 1: SoC_min while still requiring power
         fail_soc_min = (
@@ -483,21 +466,6 @@ class Simulator:
                 - I_req_max_A    : maximum required discharge current (A)
         """
 
-        def longest_autonomy_hours(s, soc_min):
-            arr = s.to_numpy()
-            below = arr <= soc_min + 1e-6
-            if below.all():
-                return 0
-            max_len = 0
-            current = 0
-            for v in below:
-                if not v:
-                    current += 1
-                    max_len = max(max_len, current)
-                else:
-                    current = 0
-            return max_len
-
         grouped = df_soc.groupby(
             ["panel_area_m2", "C_batt_Ah", "eta_PMU"],
             as_index=False
@@ -532,7 +500,7 @@ class Simulator:
 
         return summary
 
-    def compute_optimal_score(self, summary, w_batt=1.0, w_panel=1.0, w_auto=1.0):
+    def compute_optimal_score(self, summary, w_batt=1.0, w_panel=1.0, w_full=1.0):
         """
         Compute an optimality score for each configuration.
 
@@ -558,35 +526,23 @@ class Simulator:
         pd.DataFrame
             Summary DataFrame with added 'score' column, sorted by score descending.
         """
+
+        def norm_inv(series, value):
+            den = series.max() - series.min()
+            if den <= 0:
+                return 1.0
+            return 1.0 - (value - series.min()) / den
+
         def compute_raw_score(row):
-            """Compute unnormalized raw score."""
-            # Normalize battery capacity (smaller = better -> invert)
-            batt_norm = (row["C_batt_Ah"] - summary["C_batt_Ah"].min()) / \
-                        (summary["C_batt_Ah"].max() - summary["C_batt_Ah"].min())
-            batt_score = 1.0 - batt_norm
+            batt_score = norm_inv(summary["C_batt_Ah"], row["C_batt_Ah"])
+            panel_score = norm_inv(summary["panel_area_m2"], row["panel_area_m2"])
+            full_score = norm_inv(summary["soc_full_fraction"], row["soc_full_fraction"])
 
-            # Normalize panel area (smaller = better -> invert)
-            panel_norm = (row["panel_area_m2"] - summary["panel_area_m2"].min()) / \
-                         (summary["panel_area_m2"].max() - summary["panel_area_m2"].min())
-            panel_score = 1.0 - panel_norm
-
-            # Normalize autonomy (smaller = better -> invert)
-            auto_norm = safe_normalized_autonomy(
-                row["autonomy_hours"],
-                summary["autonomy_hours"].min(),
-                summary["autonomy_hours"].max()
-            )
-            auto_score = 1.0 - auto_norm
-
-
-            # Weighted raw score
-            raw = (
+            return (
                 w_batt * batt_score +
                 w_panel * panel_score +
-                w_auto * auto_score
+                w_full * full_score
             )
-
-            return raw
 
         # Compute raw scores for all rows
         summary["raw_score"] = summary.apply(compute_raw_score, axis=1)
@@ -601,7 +557,7 @@ class Simulator:
         # Any configuration with failure_hours > 0 gets score = 0
         summary.loc[summary["failure_hours"] > 0, "score"] = 0.0
 
-        del summary["raw_score"]
+        summary = summary.drop(columns="raw_score")
 
         # Sort table by score (best first)
         summary = summary.sort_values("score", ascending=False).reset_index(drop=True)
@@ -627,16 +583,16 @@ class Simulator:
             - 'summary': Summary metrics with scores
         """
         print("Loading irradiance data...")
-        irr_data = self.load_irradiance_data(irradiance_filepath)
+        irr = self.load_irradiance_data(irradiance_filepath)
 
         print("Computing PV power...")
-        df_pv = self.compute_pv_power(irr_data)
+        df_pv = self.compute_pv_power(irr)
 
         print("Computing hourly balance...")
-        df_pv_pmu = self.compute_hourly_balance(df_pv)
+        df_bal = self.compute_hourly_balance(df_pv)
 
         print("Simulating battery SoC...")
-        df_soc = self.simulate_battery_soc(df_pv_pmu)
+        df_soc = self.simulate_battery_soc(df_bal)
 
         print("Evaluating viability...")
         summary = self.evaluate_viability(df_soc)
@@ -647,8 +603,8 @@ class Simulator:
         print("Done!")
 
         return {
-            'df_pv': df_pv,
-            'df_pv_pmu': df_pv_pmu,
-            'df_soc': df_soc,
-            'summary': summary
+            "df_pv": df_pv,
+            "df_pv_pmu": df_bal,
+            "df_soc": df_soc,
+            "summary": summary,
         }
