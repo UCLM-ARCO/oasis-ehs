@@ -564,6 +564,62 @@ class Simulator:
 
         return summary
 
+    def pareto_front(self, summary, objectives=None):
+        """
+        Return the Pareto-dominant configurations from the summary DataFrame.
+
+        A configuration A dominates B if A is at least as good as B in all
+        objectives and strictly better in at least one.
+
+        Only viable configurations (failure_hours == 0) are considered.
+
+        By default, uses the same three minimization objectives as
+        ``compute_optimal_score``:
+            - ``C_batt_Ah``        (smaller battery  → better)
+            - ``panel_area_m2``    (smaller panel    → better)
+            - ``soc_full_fraction``(less saturation  → better)
+
+        Parameters
+        ----------
+        summary : pd.DataFrame
+            Output of ``evaluate_viability()`` or ``compute_optimal_score()``.
+        objectives : list of str, optional
+            Column names to use as minimization objectives.
+            Defaults to ['C_batt_Ah', 'panel_area_m2', 'soc_full_fraction'].
+
+        Returns
+        -------
+        pd.DataFrame
+            Subset of *summary* containing only Pareto-dominant rows,
+            reset-indexed and sorted by the first objective.
+        """
+        if objectives is None:
+            objectives = ["C_batt_Ah", "panel_area_m2", "soc_full_fraction"]
+
+        # Only viable configurations
+        viable = summary[summary["failure_hours"] == 0].copy()
+        if viable.empty:
+            return viable
+
+        obj_matrix = viable[objectives].to_numpy()
+        n = len(obj_matrix)
+        is_dominated = np.zeros(n, dtype=bool)
+
+        for i in range(n):
+            if is_dominated[i]:
+                continue
+            for j in range(n):
+                if i == j or is_dominated[j]:
+                    continue
+                # Does j dominate i?
+                # j dominates i if j is <= i in all objectives and < in at least one
+                if np.all(obj_matrix[j] <= obj_matrix[i]) and np.any(obj_matrix[j] < obj_matrix[i]):
+                    is_dominated[i] = True
+                    break
+
+        front = viable.iloc[~is_dominated].sort_values(objectives[0]).reset_index(drop=True)
+        return front
+
     def run_full_simulation(self, irradiance_filepath):
         """
         Run the complete simulation pipeline.
