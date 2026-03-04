@@ -1,0 +1,2 @@
+
+* No basta con dividir por el valor máximo, sino que también hay que mapear el 0 en el valor minimo de esa variable. Que eso se lo criticaron en el paper, y a nosotros nos hicieron referencia a eso.

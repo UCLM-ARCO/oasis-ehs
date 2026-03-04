@@ -564,7 +564,7 @@ class Simulator:
 
         return summary
 
-    def pareto_front(self, summary, objectives=None):
+    def pareto_front(self, summary, objectives, criteria=None):
         """
         Return the Pareto-dominant configurations from the summary DataFrame.
 
@@ -573,35 +573,54 @@ class Simulator:
 
         Only viable configurations (failure_hours == 0) are considered.
 
-        By default, uses the same three minimization objectives as
-        ``compute_optimal_score``:
-            - ``C_batt_Ah``        (smaller battery  → better)
-            - ``panel_area_m2``    (smaller panel    → better)
-            - ``soc_full_fraction``(less saturation  → better)
-
         Parameters
         ----------
         summary : pd.DataFrame
             Output of ``evaluate_viability()`` or ``compute_optimal_score()``.
-        objectives : list of str, optional
-            Column names to use as minimization objectives.
-            Defaults to ['C_batt_Ah', 'panel_area_m2', 'soc_full_fraction'].
+        objectives : list of str
+            Column names to use as objectives (plain names, no prefix).
+        criteria : list of int, optional
+            For each objective, ``+1`` to maximise or ``-1`` to minimise.
+            Defaults to ``+1`` (maximise) for every objective if not provided.
+            Must have the same length as *objectives*.
 
         Returns
         -------
         pd.DataFrame
             Subset of *summary* containing only Pareto-dominant rows,
-            reset-indexed and sorted by the first objective.
+            reset-indexed and sorted by the first objective column.
+
+        Examples
+        --------
+        Minimise battery and panel, maximise autonomy::
+
+            sim.pareto_front(
+                summary,
+                objectives  = ["C_batt_Ah", "panel_area_m2", "autonomy_hours"],
+                criteria  = [-1,           -1,               +1],
+            )
         """
-        if objectives is None:
-            objectives = ["C_batt_Ah", "panel_area_m2", "soc_full_fraction"]
+        if criteria is None:
+            criteria = [+1] * len(objectives)
+
+        if len(criteria) != len(objectives):
+            raise ValueError(
+                f"'objectives' and 'criteria' must have the same length "
+                f"({len(objectives)} vs {len(criteria)})."
+            )
 
         # Only viable configurations
         viable = summary[summary["failure_hours"] == 0].copy()
         if viable.empty:
             return viable
 
-        obj_matrix = viable[objectives].to_numpy()
+        # Build objective matrix — all converted to minimisation by negating
+        # maximisation objectives (direction == +1 → negate to minimise)
+        obj_matrix = np.column_stack([
+            viable[col].to_numpy() * (-d)   # negate: max→ min, min→ keep sign
+            for col, d in zip(objectives, criteria)
+        ])
+
         n = len(obj_matrix)
         is_dominated = np.zeros(n, dtype=bool)
 
@@ -611,8 +630,7 @@ class Simulator:
             for j in range(n):
                 if i == j or is_dominated[j]:
                     continue
-                # Does j dominate i?
-                # j dominates i if j is <= i in all objectives and < in at least one
+                # j dominates i: j <= i in all objectives and < in at least one
                 if np.all(obj_matrix[j] <= obj_matrix[i]) and np.any(obj_matrix[j] < obj_matrix[i]):
                     is_dominated[i] = True
                     break

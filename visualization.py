@@ -7,6 +7,8 @@ battery current, and seasonal variations.
 """
 
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+
 
 
 def get_config_trace(df_soc, panel, capacity, eta):
@@ -309,3 +311,89 @@ def plot_full_soc_analysis(title, df_soc, df_pv, panel, capacity, eta, hours=240
 
     plt.tight_layout()
     plt.show()
+
+
+def plot_pareto_front(
+    summary,
+    front,
+    objectives,
+    color_col,
+    title='',
+):
+    """
+    Interactive 3-D Plotly scatter of the Pareto front vs all viable configurations.
+
+    Parameters
+    ----------
+    summary : pd.DataFrame
+        Full summary (output of evaluate_viability or compute_optimal_score).
+        Used to show all viable configurations as background dots.
+    front : pd.DataFrame
+        Pareto-dominant subset returned by Simulator.pareto_front().
+    objectives : list of str, optional
+        column names ``[x_col, y_col, z_col]``.
+    title : str, optional
+        Plot title. Auto-generated from axis names if not provided.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+    """
+
+    x_col, y_col, z_col = objectives
+
+    viable = summary[summary["failure_hours"] == 0].copy()
+
+    def _label(df):
+        return (
+            f"{x_col}: " + df[x_col].astype(str) + "<br>"
+            + f"{y_col}: " + df[y_col].astype(str) + "<br>"
+            + f"{z_col}: " + df[z_col].round(3).astype(str) + "<br>"
+            + f"{color_col}: " + df[color_col].astype(str)
+        )
+
+    fig = go.Figure()
+
+    # Background: all viable configurations in grey
+    fig.add_trace(go.Scatter3d(
+        x=viable[x_col],
+        y=viable[y_col],
+        z=viable[z_col],
+        mode="markers",
+        marker=dict(size=5, color="#555555", opacity=0.8),
+        text=_label(viable),
+        hoverinfo="text",
+        name="Viable",
+    ))
+
+    # Foreground: Pareto-dominant configurations, coloured by color_col
+    fig.add_trace(go.Scatter3d(
+        x=front[x_col],
+        y=front[y_col],
+        z=front[z_col],
+        mode="markers",
+        marker=dict(
+            size=7,
+            color=front[color_col],
+            colorscale="Viridis",
+            colorbar=dict(title=color_col, x=1.0),
+            opacity=0.95,
+            line=dict(width=1, color="black"),
+        ),
+        text=_label(front),
+        hoverinfo="text",
+        name="Pareto front",
+    ))
+
+    fig.update_layout(
+        title=title or f"Pareto front – {x_col} × {y_col} × {z_col}",
+        scene=dict(
+            xaxis_title=x_col,
+            yaxis_title=y_col,
+            zaxis_title=z_col,
+        ),
+        height=700,
+        legend=dict(x=0.0, y=1.0),
+    )
+
+    return fig
