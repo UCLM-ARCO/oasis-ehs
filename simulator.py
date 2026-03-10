@@ -55,8 +55,7 @@ class Config:
     SOC_MIN = 0.2          # Minimum allowed SoC (fraction)
     BATTERY_VOLTAGE = 3.7  # Nominal voltage (V)
 
-    # Variable parameter ranges
-    PMU_ETA_VALUES = [0.87, 0.90, 0.95, 0.98]
+    PMU_ETA_VALUES = [0.70, 0.75, 0.80, 0.85, 0.87, 0.90, 0.95, 0.98]
 
     # Photovoltaic panel areas (1–400 cm²)
     PANEL_AREAS_M2 = [
@@ -70,45 +69,40 @@ class Config:
         0.00625,  # 62.5 cm² (≈8×8 cm cell)
         0.0080,   # 80 cm²
         0.0100,   # 100 cm² (≈10×10 cm)
+        0.010057, # 101 cm² (=11.3x8.9cm) https://github.com/VoltaicEngineering/Solar-Panel-Drawings/blob/master/Voltaic%20Systems%201W%206V%20113x89mm%20DRAWING%20CURRENT%202017%207%2020.pdf
         0.0160,   # 160 cm² (≈12.6×12.6 cm)
         0.0250,   # 250 cm² (≈15.8×15.8 cm)
+        0.030414, # 304 cm²,(13.7 x 22.2) https://www.adafruit.com/product/5367
         0.0310,   # 310 cm² (≈17.6×17.6 cm)
-        0.0400    # 400 cm² (≈20×20 cm)
-    ]
-
-    BATTERY_SPECS = [
-        BatterySpec(0.030, 0.10, "Li-ion",
-                    "small Li-ion coin cell (~0.1 Wh)"),
-        BatterySpec(0.070, 0.20, "LiPo",
-                    "supercap / very small LiPo (~0.25 Wh)"),
-        BatterySpec(0.135, 0.40, "LiPo",
-                    "compact LiPo (~0.5 Wh)"),
-        BatterySpec(0.270, 0.80, "LiPo",
-                    "small pouch (~1 Wh)"),
-        BatterySpec(0.500, 1.50, "Li-ion",
-                    "standard Li-ion (~2 Wh)"),
-        BatterySpec(1.000, 3.00, "Li-ion",
-                    "single 18650 (~3.7 Wh)"),
-        BatterySpec(1.300, 4.00, "LiPo",
-                    "small LiPo pack (~5 Wh)"),
-        BatterySpec(2.000, 6.00, "Li-ion",
-                    "two Li-ion (~7.4 Wh)"),
-        BatterySpec(2.600, 8.00, "Li-ion",
-                    "high capacity 18650 (~10 Wh)"),
-        BatterySpec(4.000, 10.0, "LiPo",
-                    "large LiPo (~15 Wh)"),
-        BatterySpec(5.400, 12.0, "Li-ion",
-                    "multi-day pack (~20 Wh)")
+        0.0385,   # 385 cm² (=22x17.5cm) https://www.adafruit.com/product/1525
+        0.0400,   # 400 cm² (≈20×20 cm)
+        0.056797, # 568 cm² (=22.1x25.7 cm) https://github.com/VoltaicEngineering/Solar-Panel-Drawings/blob/master/Voltaic%20Systems%209W%206V%20221x257mm%20DRAWING%20CURRENT%202017%207%2020.pdf
+        0.061102  # 611 cm² (=22.3x27.4 cm) https://www.adafruit.com/product/5369
     ]
 
     # Melisa
     # https://docs.google.com/spreadsheets/d/16a1q3lofZJNS3nguHSokKgYhDOOP0ylY17oNx9dazzg/edit?gid=0#gid=0
     BATTERY_SPECS = [
+        BatterySpec(0.011, 0.011, "LiPo",
+                    "11 mAh  — SHENZHEN PKCELL — https://www.eemb.com/product-32"),
+
         BatterySpec(0.105, 0.1575, "LiPo",
                     "105 mAh (401230) — SHENZHEN PKCELL — https://cdn-shop.adafruit.com/product-files/2750/LP552035_350MAH_3.7V_20150906.pdf"),
 
+        BatterySpec(0.120, 0.2400, "Li-ion",
+                    "120 mAh coin cell (LIR2450) — https://cdn-shop.adafruit.com/datasheets/LIR2450.pdf"),
+
+        BatterySpec(0.250, 0.250, "Li-ion",
+                    "250mAh https://www.amazon.es/dp/B08FD3V6TF?ref=emc_s_m_5_i_atc&th=1"),
+
         BatterySpec(0.350, 0.5250, "LiPo",
                     "350 mAh — https://cdn-shop.adafruit.com/product-files/2750/LP552035_350MAH_3.7V_20150906.pdf"),
+
+        BatterySpec(0.360, 0.720, "LiPo",
+                    "350 mAh — https://www.ebay.it/itm/314935725680"),
+
+        BatterySpec(0.400, 0.6000, "LiPo",
+                    "400 mAh — https://cdn-shop.adafruit.com/product-files/3898/3898_specsheet_LP801735_400mAh_3.7V_20161129.pdf"),
 
         BatterySpec(0.420, 0.6300, "LiPo",
                     "420 mAh — https://cdn-shop.adafruit.com/product-files/4236/4236_ds_LP552535+420mAh+3.7V.pdf"),
@@ -116,29 +110,44 @@ class Config:
         BatterySpec(0.500, 0.5000, "LiPo",
                     "500 mAh — https://cdn-shop.adafruit.com/product-files/1578/Datasheet.pdf"),
 
-        BatterySpec(0.400, 0.6000, "LiPo",
-                    "400 mAh — https://cdn-shop.adafruit.com/product-files/3898/3898_specsheet_LP801735_400mAh_3.7V_20161129.pdf"),
+        BatterySpec(0.550, 1.000, "LiPo",
+                    "550 mAh — https://eemb.store/products/lp602835-3-7v-550mah"),
+
+        BatterySpec(0.700, 0.700, "LiPo",
+                    "700 mAh - https://support.pluxbiosignals.com/wp-content/uploads/2021/11/lp553436-datasheet.pdf "),
+
+        BatterySpec(0.750, 1.500, "LiPo",
+                    "750 mAh - https://macrogroup.ru/upload/iblock/215/j606vmmes1heftrm2qjhf7v50oz78yd6/LP523048.pdf"),
+
+        BatterySpec(0.880, 1.760, "LiPo",
+                    "880 mAh -  https://macrogroup.ru/upload/iblock/bcf/jppp6b0xsz9q5cxigudx913qc3rzfudg/LP503448_880mAh.pdf"),
+
+        BatterySpec(1.100, 2.0000, "LiPo",
+                    "1100 mAh — https://www.ebay.co.uk/itm/257173548788?customid&toolid=10050"),
 
         BatterySpec(1.200, 1.2000, "LiPo",
-                    "1200 mAh — https://cdn-shop.adafruit.com/product-files/258/C101-_Li-Polymer_503562_1200mAh_3.7V_with_PCM_APPROVED_8.18.pdf"),
+                    "1200 mAh — https://cdn-shop.adafruit.com/product-files/258/C101-_Li-Polymer_503562_1200mAh_3.7V_with_PCM_APPROVED_8.18.pdf%22"),
 
-        BatterySpec(2.000, 2.0000, "LiPo",
-                    "2000 mAh — https://cdn-shop.adafruit.com/datasheets/LiIon2000mAh37V.pdf"),
-
-        BatterySpec(2.500, 1.5000, "LiPo",
-                    "2500 mAh — https://cdn-shop.adafruit.com/product-files/328/LP785060+2500mAh+3.7V+20190510.pdf"),
-
-        BatterySpec(0.120, 0.2400, "Li-ion",
-                    "120 mAh coin cell (LIR2450) — https://cdn-shop.adafruit.com/datasheets/LIR2450.pdf"),
+        BatterySpec(1.400, 2.000, "LiPo",
+                    "1400 mAh — https://www.amazon.es/dp/B095W4HS75?ref=emc_s_m_5_i_atc&th=1"),
 
         BatterySpec(1.600, 4.8000, "LiFePO4",
                     "1600 mAh (high-discharge) — https://www.antbatt.com/wp-content/uploads/2019/09/18650-3.2V-1600mAh-datasheet.pdf"),
 
-        BatterySpec(3.200, 9.6000, "LiFePO4",
-                    "3200 mAh (high-discharge) — https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/180/P3_2D00_Datasheet-Cell--3232-LFP-26650.pdf"),
+        BatterySpec(1.800, 3.6000, "LiPo",
+                    "1800 mAh — https://macrogroup.ru/upload/iblock/34a/ar3b90i9orrr8q4pawtb1tphma0gtgt1/LP103448.pdf"),
+
+        BatterySpec(2.000, 2.0000, "LiPo",
+                    "2000 mAh — https://cdn-shop.adafruit.com/datasheets/LiIon2000mAh37V.pdf"),
 
         BatterySpec(2.300, 46.0000, "LiFePO4",
-                    "2300 mAh (very high-discharge) — https://docs.rs-online.com/4ad1/0900766b812fdd10.pdf")
+                    "2300 mAh (very high-discharge) — https://docs.rs-online.com/4ad1/0900766b812fdd10.pdf"),
+
+        BatterySpec(2.500, 1.5000, "LiPo",
+                    "2500 mAh — https://cdn-shop.adafruit.com/product-files/328/LP785060+2500mAh+3.7V+20190510.pdf"),
+
+        BatterySpec(3.200, 9.6000, "LiFePO4",
+                    "3200 mAh (high-discharge) — https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/180/P3_2D00_Datasheet-Cell--3232-LFP-26650.pdf%22")
     ]
 
     score_objectives = [
