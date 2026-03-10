@@ -519,51 +519,43 @@ class Simulator:
         ----------
         summary : pd.DataFrame
             Summary DataFrame from evaluate_viability()
-        objectives : list of (str, int | float), optional
-            Each element is a ``(column_name, weight)`` pair where:
+                objectives : list of (str, int | float), optional
+                    Each element is a ``(column_name, criterion)`` pair where:
 
-            - The **sign** of *weight* sets the optimisation direction:
-              ``weight > 0`` → higher is better (maximise),
-              ``weight < 0`` → lower is better (minimise).
-            - The **absolute value** sets the relative importance of that
-              criterion (e.g. ``-2`` has twice the influence of ``-1``).
+                    - ``criterion > 0`` → higher is better (maximise).
+                    - ``criterion < 0`` → lower is better (minimise).
 
-            Defaults to ``[("C_batt_Ah", -1), ("panel_area_m2", -1),
-            ("soc_full_fraction", -1)]`` (minimise all three equally).
+                    The magnitude is treated as relative weight.
+
+                    If empty/None, defaults to:
+                    ``[("C_batt_Ah", -1), ("panel_area_m2", -1), ("soc_full_fraction", -1)]``.
 
         Returns
         -------
         pd.DataFrame
             Summary DataFrame with added 'score' column, sorted by score descending.
 
-        Examples
-        --------
-        Penalise battery twice as much as panel, reward autonomy::
-
-            sim.compute_optimal_score(
-                summary,
-                objectives=[
-                    ("C_batt_Ah",        -2),
-                    ("panel_area_m2",     -1),
-                    ("autonomy_hours",    +1),
-                ],
-            )
         """
+        if not objectives:
+            objectives = [
+                ("C_batt_Ah", -1),
+                ("panel_area_m2", -1),
+                ("soc_full_fraction", -1),
+            ]
+
         def norm_col(series, value, direction):
-            """Normalise *value* to [0, 1] where 1 is always 'best'."""
             lo, hi = series.min(), series.max()
             den = hi - lo
             if den <= 0:
                 return 1.0
-            normalized = (value - lo) / den   # 0 = min, 1 = max
-            # For direction < 0 (minimise): invert so lower value → score 1
+            normalized = (value - lo) / den
             return normalized if direction > 0 else 1.0 - normalized
 
         def compute_raw_score(row):
             total = 0.0
-            for col, weight in objectives:
-                direction = 1 if weight >= 0 else -1
-                total += abs(weight) * norm_col(summary[col], row[col], direction)
+            for col, criterion in objectives:
+                direction = 1 if criterion >= 0 else -1
+                total += abs(criterion) * norm_col(summary[col], row[col], direction)
             return total
 
         # Compute raw scores for all rows
