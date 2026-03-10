@@ -340,7 +340,8 @@ def plot_pareto_front(
     plotly.graph_objects.Figure
     """
 
-    x_col, y_col, z_col = objectives
+    objectives_names = [col for col, _ in objectives]
+    x_col, y_col, z_col = objectives_names
 
     viable = summary[summary["failure_hours"] == 0].copy()
 

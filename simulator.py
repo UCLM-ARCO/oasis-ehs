@@ -141,6 +141,11 @@ class Config:
                     "2300 mAh (very high-discharge) — https://docs.rs-online.com/4ad1/0900766b812fdd10.pdf")
     ]
 
+    score_objectives = [
+        ("C_batt_Ah",         -1),
+        ("panel_area_m2",     -1),
+        ("soc_full_fraction", -1),
+    ]
 
 @njit
 def simulate_soc_kernel(i_bat, Cbat, soc_min, eta_c):
@@ -500,7 +505,7 @@ class Simulator:
 
         return summary
 
-    def compute_optimal_score(self, summary, w_batt=1.0, w_panel=1.0, w_full=1.0):
+    def compute_score(self, summary, objectives):
         """
         Compute an optimality score for each configuration.
 
@@ -514,35 +519,52 @@ class Simulator:
         ----------
         summary : pd.DataFrame
             Summary DataFrame from evaluate_viability()
-        w_batt : float
-            Weight for battery capacity (smaller is better)
-        w_panel : float
-            Weight for panel area (smaller is better)
-        w_auto : float
-            Weight for autonomy (smaller is better)
+        objectives : list of (str, int | float), optional
+            Each element is a ``(column_name, weight)`` pair where:
+
+            - The **sign** of *weight* sets the optimisation direction:
+              ``weight > 0`` → higher is better (maximise),
+              ``weight < 0`` → lower is better (minimise).
+            - The **absolute value** sets the relative importance of that
+              criterion (e.g. ``-2`` has twice the influence of ``-1``).
+
+            Defaults to ``[("C_batt_Ah", -1), ("panel_area_m2", -1),
+            ("soc_full_fraction", -1)]`` (minimise all three equally).
 
         Returns
         -------
         pd.DataFrame
             Summary DataFrame with added 'score' column, sorted by score descending.
-        """
 
-        def norm_inv(series, value):
-            den = series.max() - series.min()
+        Examples
+        --------
+        Penalise battery twice as much as panel, reward autonomy::
+
+            sim.compute_optimal_score(
+                summary,
+                objectives=[
+                    ("C_batt_Ah",        -2),
+                    ("panel_area_m2",     -1),
+                    ("autonomy_hours",    +1),
+                ],
+            )
+        """
+        def norm_col(series, value, direction):
+            """Normalise *value* to [0, 1] where 1 is always 'best'."""
+            lo, hi = series.min(), series.max()
+            den = hi - lo
             if den <= 0:
                 return 1.0
-            return 1.0 - (value - series.min()) / den
+            normalized = (value - lo) / den   # 0 = min, 1 = max
+            # For direction < 0 (minimise): invert so lower value → score 1
+            return normalized if direction > 0 else 1.0 - normalized
 
         def compute_raw_score(row):
-            batt_score = norm_inv(summary["C_batt_Ah"], row["C_batt_Ah"])
-            panel_score = norm_inv(summary["panel_area_m2"], row["panel_area_m2"])
-            full_score = norm_inv(summary["soc_full_fraction"], row["soc_full_fraction"])
-
-            return (
-                w_batt * batt_score +
-                w_panel * panel_score +
-                w_full * full_score
-            )
+            total = 0.0
+            for col, weight in objectives:
+                direction = 1 if weight >= 0 else -1
+                total += abs(weight) * norm_col(summary[col], row[col], direction)
+            return total
 
         # Compute raw scores for all rows
         summary["raw_score"] = summary.apply(compute_raw_score, axis=1)
@@ -564,7 +586,7 @@ class Simulator:
 
         return summary
 
-    def pareto_front(self, summary, objectives, criteria=None):
+    def pareto_front(self, summary, objectives):
         """
         Return the Pareto-dominant configurations from the summary DataFrame.
 
@@ -577,12 +599,11 @@ class Simulator:
         ----------
         summary : pd.DataFrame
             Output of ``evaluate_viability()`` or ``compute_optimal_score()``.
-        objectives : list of str
-            Column names to use as objectives (plain names, no prefix).
-        criteria : list of int, optional
-            For each objective, ``+1`` to maximise or ``-1`` to minimise.
-            Defaults to ``+1`` (maximise) for every objective if not provided.
-            Must have the same length as *objectives*.
+        objectives : list of (str, int | float)
+            Each element is a ``(column_name, criterion)`` pair where the
+            **sign** of *criterion* sets the optimisation direction:
+            ``criterion > 0`` → maximise, ``criterion < 0`` → minimise.
+            The magnitude is ignored for dominance; only the sign matters.
 
         Returns
         -------
@@ -596,18 +617,15 @@ class Simulator:
 
             sim.pareto_front(
                 summary,
-                objectives  = ["C_batt_Ah", "panel_area_m2", "autonomy_hours"],
-                criteria  = [-1,           -1,               +1],
+                objectives=[
+                    ("C_batt_Ah",      -1),
+                    ("panel_area_m2",  -1),
+                    ("autonomy_hours", +1),
+                ],
             )
         """
-        if criteria is None:
-            criteria = [+1] * len(objectives)
-
-        if len(criteria) != len(objectives):
-            raise ValueError(
-                f"'objectives' and 'criteria' must have the same length "
-                f"({len(objectives)} vs {len(criteria)})."
-            )
+        cols     = [col for col, _ in objectives]
+        criteria = [c   for _,   c in objectives]
 
         # Only viable configurations
         viable = summary[summary["failure_hours"] == 0].copy()
@@ -615,10 +633,10 @@ class Simulator:
             return viable
 
         # Build objective matrix — all converted to minimisation by negating
-        # maximisation objectives (direction == +1 → negate to minimise)
+        # maximisation objectives (criterion > 0 → negate to minimise)
         obj_matrix = np.column_stack([
-            viable[col].to_numpy() * (-d)   # negate: max→ min, min→ keep sign
-            for col, d in zip(objectives, criteria)
+            viable[col].to_numpy() * (-1 if d > 0 else 1)
+            for col, d in zip(cols, criteria)
         ])
 
         n = len(obj_matrix)
@@ -635,7 +653,7 @@ class Simulator:
                     is_dominated[i] = True
                     break
 
-        front = viable.iloc[~is_dominated].sort_values(objectives[0]).reset_index(drop=True)
+        front = viable.iloc[~is_dominated].sort_values(cols[0]).reset_index(drop=True)
         return front
 
     def run_full_simulation(self, irradiance_filepath):
@@ -672,8 +690,8 @@ class Simulator:
         summary = self.evaluate_viability(df_soc)
 
         print("Computing optimal scores...")
-        summary = self.compute_optimal_score(summary)
 
+        summary = self.compute_score(summary, self.config.score_objectives)
         print("Done!")
 
         return {
