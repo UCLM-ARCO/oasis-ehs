@@ -519,16 +519,17 @@ class Simulator:
         ----------
         summary : pd.DataFrame
             Summary DataFrame from evaluate_viability()
-                objectives : list of (str, int | float), optional
-                    Each element is a ``(column_name, criterion)`` pair where:
+        objectives : list of (str, int | float)
+            Each element is a ``(column_name, criterion)`` pair where:
 
-                    - ``criterion > 0`` → higher is better (maximise).
-                    - ``criterion < 0`` → lower is better (minimise).
+            - ``criterion > 0`` → higher is better (maximise).
+            - ``criterion < 0`` → lower is better (minimise).
+            - ``abs(criterion)`` is the relative weight.
 
-                    The magnitude is treated as relative weight.
+            Example: ``("C_batt_Ah", -2)`` means minimise battery capacity
+            with double weight compared to an objective using ``-1``.
 
-                    If empty/None, defaults to:
-                    ``[("C_batt_Ah", -1), ("panel_area_m2", -1), ("soc_full_fraction", -1)]``.
+            This parameter is mandatory and must be non-empty.
 
         Returns
         -------
@@ -536,12 +537,12 @@ class Simulator:
             Summary DataFrame with added 'score' column, sorted by score descending.
 
         """
+
         if not objectives:
-            objectives = [
-                ("C_batt_Ah", -1),
-                ("panel_area_m2", -1),
-                ("soc_full_fraction", -1),
-            ]
+            raise ValueError(
+                "'objectives' is mandatory and must contain at least one "
+                "(column_name, criterion) pair."
+            )
 
         def norm_col(series, value, direction):
             lo, hi = series.min(), series.max()
@@ -555,7 +556,8 @@ class Simulator:
             total = 0.0
             for col, criterion in objectives:
                 direction = 1 if criterion >= 0 else -1
-                total += abs(criterion) * norm_col(summary[col], row[col], direction)
+                weight = abs(float(criterion))
+                total += weight * norm_col(summary[col], row[col], direction)
             return total
 
         # Compute raw scores for all rows
