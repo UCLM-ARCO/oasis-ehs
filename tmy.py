@@ -39,7 +39,7 @@ def get_coordinates_for_city(city_name: str) -> tuple[float, float]:
     return float(data[0]["lat"]), float(data[0]["lon"])
 
 
-def get_tmy_data(city_name: str, start_year: int, end_year: int) -> dict:
+def get_orig_tmy_data(city_name: str, start_year: int, end_year: int) -> dict:
     lat, lon = get_coordinates_for_city(city_name)
     logger.info(f"Coordinates for {city_name}: lat={lat}, lon={lon}")
 
@@ -76,7 +76,7 @@ def build_adjusted_dataframe(hourly: list[dict]) -> pd.DataFrame:
     return adjusted
 
 
-def generate_final_tmy_csv(
+def get_tmy_csv(
     city_name: str,
     start_year: int,
     end_year: int,
@@ -94,7 +94,7 @@ def generate_final_tmy_csv(
         logger.info(f"CSV already exists, skipping download: {adjusted_path}")
         return str(adjusted_path)
 
-    data = get_tmy_data(city_name, start_year, end_year)
+    data = get_orig_tmy_data(city_name, start_year, end_year)
     logger.info(json.dumps(data['inputs'], indent=2))
 
     hourly = data["outputs"]["tmy_hourly"]
@@ -120,7 +120,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    adjusted_path = generate_final_tmy_csv(
+    adjusted_path = get_tmy_csv(
         city_name=args.city,
         start_year=args.start_year,
         end_year=args.end_year,
