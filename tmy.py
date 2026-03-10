@@ -3,9 +3,13 @@
 import argparse
 from pathlib import Path
 import json
+import logging
 
 import pandas as pd
 import requests
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 
 def sanitize_file_stem(city_name: str) -> str:
@@ -37,7 +41,7 @@ def get_coordinates_for_city(city_name: str) -> tuple[float, float]:
 
 def get_tmy_data(city_name: str, start_year: int, end_year: int) -> dict:
     lat, lon = get_coordinates_for_city(city_name)
-    print(f"Coordinates for {city_name}: lat={lat}, lon={lon}")
+    logger.info(f"Coordinates for {city_name}: lat={lat}, lon={lon}")
 
     url = "https://re.jrc.ec.europa.eu/api/tmy"
     params = {
@@ -72,6 +76,36 @@ def build_adjusted_dataframe(hourly: list[dict]) -> pd.DataFrame:
     return adjusted
 
 
+def generate_final_tmy_csv(
+    city_name: str,
+    start_year: int,
+    end_year: int,
+    output_dir: str = "raw-data",
+) -> str:
+
+    if start_year > end_year:
+        raise ValueError("start_year cannot be greater than end_year")
+
+    file_stem = f"{sanitize_file_stem(city_name)}_{start_year}_{end_year}"
+    output_dir_path = Path(output_dir)
+    adjusted_path = output_dir_path / f"{file_stem}.csv"
+
+    if adjusted_path.exists():
+        logger.info(f"CSV already exists, skipping download: {adjusted_path}")
+        return str(adjusted_path)
+
+    data = get_tmy_data(city_name, start_year, end_year)
+    logger.info(json.dumps(data['inputs'], indent=2))
+
+    hourly = data["outputs"]["tmy_hourly"]
+    adjusted_df = build_adjusted_dataframe(hourly)
+
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+    adjusted_df.to_csv(adjusted_path, index=False)
+
+    return str(adjusted_path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Download PVGIS TMY data for a city and generate a simulation-ready CSV file."
@@ -80,35 +114,20 @@ def main() -> None:
     parser.add_argument("--start-year", type=int, default=2007, help="Start year for PVGIS (default: 2007)")
     parser.add_argument("--end-year", type=int, default=2020, help="End year for PVGIS (default: 2020)")
     parser.add_argument(
-        "--name",
-        default=None,
-        help="Base name for output files (without .csv). If omitted, it is derived from the city name.",
-    )
-    parser.add_argument(
         "--output-dir",
         default="raw-data",
         help="Output directory for CSV files (default: raw-data)",
     )
     args = parser.parse_args()
 
-    if args.start_year > args.end_year:
-        raise ValueError("start-year cannot be greater than end-year")
+    adjusted_path = generate_final_tmy_csv(
+        city_name=args.city,
+        start_year=args.start_year,
+        end_year=args.end_year,
+        output_dir=args.output_dir,
+    )
 
-    base_name = args.name or sanitize_file_stem(args.city)
-    output_dir = Path(args.output_dir)
-    adjusted_path = output_dir / f"{base_name}.csv"
-
-    data = get_tmy_data(args.city, args.start_year, args.end_year)
-
-    print(json.dumps(data['inputs'], indent=2))
-
-    hourly = data["outputs"]["tmy_hourly"]
-    adjusted_df = build_adjusted_dataframe(hourly)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    adjusted_df.to_csv(adjusted_path, index=False)
-
-    print(f"Adjusted CSV saved to: {adjusted_path}")
-    print(f"Adjusted rows: {len(adjusted_df)}")
+    logger.info(f"Adjusted CSV saved to: {adjusted_path}")
 
 
 if __name__ == "__main__":
