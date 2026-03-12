@@ -568,25 +568,24 @@ class Simulator:
                 weight = abs(float(criterion))
                 total += weight * norm_col(summary[col], row[col], direction)
             return total
-
+            
         # Compute raw scores for all rows
-        summary["raw_score"] = summary.apply(compute_raw_score, axis=1)
+        summary["score"] = summary.apply(compute_raw_score, axis=1)
 
         # Normalize raw_score to [0,1]
-        raw_min = summary["raw_score"].min()
-        raw_max = summary["raw_score"].max()
+        #raw_min = summary["raw_score"].min()
+        #raw_max = summary["raw_score"].max()
 
-        summary["score"] = (summary["raw_score"] - raw_min) / (raw_max - raw_min + 1e-12)
+        #summary["score"] = summary["raw_score"] #- raw_min) / (raw_max - raw_min + 1e-12)
 
         # Apply strict penalty for failures
         # Any configuration with failure_hours > 0 gets score = 0
         summary.loc[summary["failure_hours"] > 0, "score"] = 0.0
 
-        summary = summary.drop(columns="raw_score")
+        #summary = summary.drop(columns="raw_score")
 
         # Sort table by score (best first)
         summary = summary.sort_values("score", ascending=False).reset_index(drop=True)
-
         return summary
 
     def pareto_front(self, summary, objectives):
