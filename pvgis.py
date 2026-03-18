@@ -81,6 +81,7 @@ def get_tmy_csv(
     start_year: int,
     end_year: int,
     output_dir: str = "raw-data",
+    force_download: bool = False,
 ) -> str:
 
     if start_year > end_year:
@@ -90,7 +91,7 @@ def get_tmy_csv(
     output_dir_path = Path(output_dir)
     adjusted_path = output_dir_path / f"{file_stem}.csv"
 
-    if adjusted_path.exists():
+    if adjusted_path.exists() and not force_download:
         logger.info(f"CSV already exists, skipping download: {adjusted_path}")
         return str(adjusted_path)
 
@@ -118,6 +119,11 @@ def main() -> None:
         default="raw-data",
         help="Output directory for CSV files (default: raw-data)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force regeneration even if the output CSV already exists",
+    )
     args = parser.parse_args()
 
     adjusted_path = get_tmy_csv(
@@ -125,6 +131,7 @@ def main() -> None:
         start_year=args.start_year,
         end_year=args.end_year,
         output_dir=args.output_dir,
+        force_download=args.force,
     )
 
     logger.info(f"Adjusted CSV saved to: {adjusted_path}")
