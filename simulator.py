@@ -77,7 +77,7 @@ class Config:
         0.0385,   # 385 cm² (=22x17.5cm) https://www.adafruit.com/product/1525
         0.0400,   # 400 cm² (≈20×20 cm)
         0.056797, # 568 cm² (=22.1x25.7 cm) https://github.com/VoltaicEngineering/Solar-Panel-Drawings/blob/master/Voltaic%20Systems%209W%206V%20221x257mm%20DRAWING%20CURRENT%202017%207%2020.pdf
-        0.061102  # 611 cm² (=22.3x27.4 cm) https://www.adafruit.com/product/5369
+        #0.061102  # 611 cm² (=22.3x27.4 cm) https://www.adafruit.com/product/5369
     ]
 
     # Melisa
