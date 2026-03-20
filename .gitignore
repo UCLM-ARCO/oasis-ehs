@@ -1,3 +1,30 @@
+# =========================
+# Python
+# =========================
 __pycache__/
-test/__pycache__/
+*.pyc
 
+# Entorno virtual
+.venv/
+env/
+venv/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Datos locales (NO versionar)
+# =========================
+Datos_SoC/
+
+# =========================
+# Imágenes generadas (opcional)
+# =========================
+images/
+
+# =========================
+# Ignorar un notebook específico en raíz
+# =========================
+SoC_graphics.ipynb
